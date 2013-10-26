@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <pthread.h>
 #include <errno.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -102,7 +103,10 @@ int startserver(int *listenfd,int *port);
 int serve_forever(int listenfd);
 
 //Handle a request then exit
-void handle_request(int connfd);
+int handle_request(int connfd);
+
+//threaded request handling function
+void *thread_handle_request(void *fd);
 
 //read a character from the stdio
 int readc(int fd,void *buf,size_t count);
@@ -228,7 +232,7 @@ int serve_forever(int listenfd)
 {
     int connfd;
     struct sockaddr_in connaddr;//IPv4 socket address for connection
-    char *request=NULL;
+
     int len=sizeof(connfd);
 	signal(SIGPIPE,SIG_IGN);//ignore the SIGPIPE signal
     while(1)
@@ -240,15 +244,39 @@ int serve_forever(int listenfd)
         {
             error_die("accept");
         }
-        accept_request(connfd,&request);
-        process_request(connfd,request);
-        close(connfd);
-    }
-    if(request)
-    {
-        free(request);
+		handle_request(connfd);
+		continue;
+        //accept_request(connfd,&request);
+        //process_request(connfd,request);
+        //close(connfd);
     }
     return 0;
+}
+
+int handle_request(int connfd)
+{
+	pthread_t tid;
+	int res;
+	res=pthread_create(&tid,NULL,thread_handle_request,&connfd);
+	if(res!=0)
+	{
+		perror("pthread_create()");
+		return -1;
+	}
+	pthread_detach(tid);
+	return 0;
+}
+
+void *thread_handle_request(void *fd)
+{
+	int connfd=*(int*)fd;
+	char *request=NULL;
+	if(accept_request(connfd,&request))
+	{
+		process_request(connfd,request);
+	}
+	close(connfd);
+	pthread_exit(NULL);
 }
 
 int readc(int fd,void* buf,size_t count);

@@ -1,4 +1,4 @@
-CFLAGS=-g -Wall
+CFLAGS=-g -Wall -lpthread
 
 httpd:httpd.o
 	$(CC) -o $@ $^ $(CFLAGS)
