@@ -11,6 +11,7 @@ directory listing
 mime type
 non-blocking read all data in socket
 threaded processing per request
+CGI
 
 TO-DO:
 streaming
