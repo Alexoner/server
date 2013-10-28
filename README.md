@@ -9,12 +9,12 @@ serve dynamic files
 error process,error code
 directory listing
 mime type
-non-blocking read all data in socket
+multiplexing socket file descriptor
 threaded processing per request
-CGI
+CGI processing
 
 TO-DO:
 streaming
 urldecode
-multiplexing socket for event driven asynchronous server
+multiplexing socket for event-driven(signal-drive) asynchronous server
 solve "bind:address already in use"
