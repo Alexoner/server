@@ -32,15 +32,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "http_urldecode.h"
+
 #define LISTENQ					5
 #define DEFAULT_PORT			9117
 #define ROOT_DIR				""
 #define MAX_NAME_VALUE			255
 #define MAXLINE					1024
-#define MAX_METHOD_L			127
-#define MAX_URL_L				255
-#define MAX_PATH_L				511
-#define MAX_VERSION_L			15
+#define MAX_METHOD_L			128
+#define MAX_URL_L				512
+#define MAX_PATH_L				512
+#define MAX_VERSION_L			16
 #define MAX_CGI_DIR_N			2
 #define MAX_MIME_L				255
 #define SERVER					"Server:HTTP/0.1 C/99"
@@ -342,11 +344,13 @@ int process_request(int connfd,const char *request)
     int i,cgi=0;
     if(!request)
         return -1;
-    if((ns=sscanf(request,"%s %s %s",method,url,version))!=3)
+    if((ns=sscanf(request,"%s %s %s",method,buf,version))!=3)
     {
         bad_request(connfd);
     }
+	urldecode(buf,url);
     printf("%s",request);
+	printf("%s\n",url);
     //process for different methods
     if(!strcasecmp(method,"GET"))
     {
@@ -363,8 +367,10 @@ int process_request(int connfd,const char *request)
         }
         else
         {
-            sscanf(url,"%s",buf);
+            //sscanf(url,"%s",buf);
+            strcpy(buf,url);
             sprintf(path,"%s%s",root_dir,buf);
+			printf("371:%s\n%s\n",buf,path);
             for(i=0; i<MAX_CGI_DIR_N; i++)
             {
                 if((s=strstr(url,cgi_dir[i])))
@@ -392,7 +398,9 @@ int process_request(int connfd,const char *request)
     {
         //POST method
         cgi=1;
-        sscanf(url,"%s",buf);
+        //sscanf(url,"%s",buf);
+        strcpy(url,buf);
+		printf("url: %s\n",buf);
         sprintf(path,"%s%s",root_dir,buf);
 
         //for debug
@@ -410,7 +418,7 @@ int process_request(int connfd,const char *request)
     {
         perror("stat ");
         getcwd(buf,sizeof(buf));
-        printf("cwd is %s\n",buf);
+        printf("file is %s\n",path);
         not_found(connfd,path);
     }
     else
