@@ -12,9 +12,9 @@ mime type
 multiplexing socket file descriptor
 threaded processing per request
 CGI processing
+urldecode
 
 TO-DO:
 streaming
-urldecode
-multiplexing socket for event-driven(signal-drive) asynchronous server
+multiplexing socket for event-driven(signal-drive) asynchronous server(epoll)
 solve "bind:address already in use"
