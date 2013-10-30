@@ -150,9 +150,9 @@ int http_epoll_wait(http_epoll_t *this,int msec)
 			fprintf(stderr,"EPOLLHUP occured on fd\n");
 			continue;
 		}
-		else if(epoll_event &(EPOLLIN |EPOLLOUT))
+		else if(epoll_event->events &EPOLLIN )
 		{
-
+			http_connection_handle(
 			continue;
 		}
         //TO handle these file descriptors
@@ -220,7 +220,7 @@ int http_epoll_accept(http_epoll_t *this,http_event_t *e)
         flags=O_RDWR |O_NONBLOCK;
         fcntl(c.fd,F_SETFL,flags);
         event.data.ptr=&c;
-        event.events=EPOLLIN |EPOLLOUT |EPOLLERR |EPOLLHUP;
+        event.events=EPOLLIN |EPOLLERR |EPOLLHUP;
         c.handle=http_connection_handle;
         http_epoll_add(this,c.fd,&event);
     }
