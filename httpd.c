@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <errno.h>
 #include <unistd.h>
@@ -31,6 +32,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+#include "httpd.h"
 
 #include "http_urldecode.h"
 
@@ -231,6 +234,7 @@ int serve_forever(int listenfd)
         {
             error_die("accept");
         }
+		printf("%s\t",inet_ntoa(connaddr.sin_addr));
 		handle_request(connfd);
 		continue;
         //accept_request(connfd,&request);
@@ -335,7 +339,7 @@ int process_request(int connfd,const char *request)
     }
 	urldecode(buf,url);
     printf("%s",request);
-	printf("%s\n",url);
+	//printf("%s\n",url);
     //process for different methods
     if(!strcasecmp(method,"GET"))
     {
@@ -355,7 +359,6 @@ int process_request(int connfd,const char *request)
             //sscanf(url,"%s",buf);
             strcpy(buf,url);
             sprintf(path,"%s%s",root_dir,buf);
-			printf("371:%s\n%s\n",buf,path);
             for(i=0; i<MAX_CGI_DIR_N; i++)
             {
                 if((s=strstr(url,cgi_dir[i])))
@@ -453,7 +456,7 @@ void end_headers(int connfd)
     //a blank line seperate headers from the content
 }
 
-int  send_content(int connfd,const char *mime,const char* path)
+int send_content(int connfd,const char *mime,const char* path)
 {
 	char str[MAX_MIME_L];
 	if(sscanf(mime,"%[^/]",str)<=0)
@@ -913,6 +916,22 @@ int main(int argc,char **argv)
     int listenfd;//file descriptor for listening socket
     int port=DEFAULT_PORT;//listening port
     getcwd(root_dir,sizeof(root_dir));
+
+	int opt;
+	while((opt=getopt(argc,argv,"d:p:"))!=-1)
+	{
+		switch(opt)
+		{
+			case 'd':
+				printf("directory: %s\n",optarg);
+				strcpy(root_dir,optarg);
+				break;
+			case 'p':
+				port=atoi(optarg);
+				printf("port: %d\n",port);
+				break;
+		}
+	}
 
     listenfd=startserver(&listenfd,&port);
     printf("NHW httpd is running on port %d\n",port);
