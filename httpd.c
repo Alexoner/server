@@ -34,21 +34,6 @@
 
 #include "http_urldecode.h"
 
-#define LISTENQ					5
-#define DEFAULT_PORT			9117
-#define ROOT_DIR				""
-#define MAX_NAME_VALUE			255
-#define MAXLINE					1024
-#define MAX_METHOD_L			128
-#define MAX_URL_L				512
-#define MAX_PATH_L				512
-#define MAX_VERSION_L			16
-#define MAX_CGI_DIR_N			2
-#define MAX_MIME_L				255
-#define SERVER					"Server:HTTP/0.1 C/99"
-#define CONTENT_LENGTH_S		"Content-Length:"
-
-#define DEBUG					1
 
 typedef enum
 {
