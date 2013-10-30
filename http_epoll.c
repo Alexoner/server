@@ -128,6 +128,7 @@ int http_epoll_wait(http_epoll_t *this,int msec)
     struct epoll_event *epoll_event=NULL;
     int i;
     int nfds;
+	int fd=-1;
 
     nfds=epoll_wait(this->epfd,this->events,this->used,msec);
 
@@ -151,8 +152,23 @@ int http_epoll_wait(http_epoll_t *this,int msec)
 			continue;
 		}
 		else if(epoll_event->events &EPOLLIN )
+		{//ready for read
+			printf("EPOLLIN\n");
+			return -1;
+			struct epoll_event ee;
+			ee.events=EPOLLOUT |EPOLLERR |EPOLLHUP;
+			//http_connection_handle(
+			fd=((connection_t*)((http_event_t*)epoll_event->data.ptr)->data)->fd;
+			if(((http_event_t*)epoll_event->data.ptr)->listenfd==-1)
+			{
+				epoll_ctl(this->epfd,EPOLL_CTL_MOD,fd,&ee);
+				//send_error(((connection_t*)((http_event_t*)epoll_event->data.ptr)->data)->fd,7,"testing epoll\n");
+			}
+			continue;
+		}
+		else if(epoll_event->events & EPOLLOUT)
 		{
-			http_connection_handle(
+			//send_error(((connection_t*)((http_event_t*)epoll_event->data.ptr)->data)->fd,7,"testing epoll\n");
 			continue;
 		}
         //TO handle these file descriptors
@@ -204,13 +220,13 @@ int http_epoll_event_handle(http_event_t *e)
 
 int http_epoll_accept(http_epoll_t *this,http_event_t *e)
 {
-    connection_t c;
+    connection_t *c=(connection_t*)malloc(sizeof(connection_t));
     struct epoll_event event;
     int flags;
-    memset(&c,0,sizeof(c));
+    memset(c,0,sizeof(*c));
 
-    c.fd=accept(e->listenfd,&c.addr,&c.addr_len);
-    if(c.fd==-1)
+    c->fd=accept(e->listenfd,&c->addr,&c->addr_len);
+    if(c->fd==-1)
     {
         perror("accpet()");
         return errno;
@@ -218,13 +234,38 @@ int http_epoll_accept(http_epoll_t *this,http_event_t *e)
     else
     {
         flags=O_RDWR |O_NONBLOCK;
-        fcntl(c.fd,F_SETFL,flags);
-        event.data.ptr=&c;
-        event.events=EPOLLIN |EPOLLERR |EPOLLHUP;
-        c.handle=http_connection_handle;
-        http_epoll_add(this,c.fd,&event);
+        if(fcntl(c->fd,F_SETFL,flags)==-1)
+		{
+			perror("fcntl");
+			return -1;
+		}
+        event.data.ptr=c;
+        event.events=EPOLLIN | EPOLLET| EPOLLERR |EPOLLHUP;
+        //c->handle=http_connection_handle;
+        http_epoll_add(this,c->fd,&event);
     }
     return 0;
+}
+
+int http_epoll_add_listen_socket(http_epoll_t *this,int fd)
+{
+	struct epoll_event event;
+	http_event_t *e=(http_event_t*)malloc(sizeof(*e));
+	int flags=0;
+	memset(&event,0,sizeof(event));
+
+	e=(http_event_t*)event.data.ptr;
+	e->listenfd=fd;
+	flags=O_RDWR | O_NONBLOCK;
+	if(fcntl(e->listenfd,F_SETFL,flags)==-1)
+	{
+		perror("epoll add listen socket");
+		return -1;
+	}
+
+	event.data.ptr=e;
+	event.events=EPOLLIN | EPOLLERR | EPOLLHUP |EPOLLET;
+	http_epoll_add(this,fd,&event);
 }
 
 int http_connection_handle(connection_t *c)
