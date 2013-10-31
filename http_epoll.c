@@ -122,7 +122,7 @@ int http_epoll_wait(http_epoll_t *this,int msec)
 		}
 		else if(epoll_event->events &(EPOLLIN | EPOLLOUT) )
 		{//ready for read
-			printf("EPOLLIN | EPOLLOUT\n");
+			printf("events: %x\n",epoll_event->events);
 			http_event = (http_event_t*)epoll_event->data.ptr;
 			//get the corresponding http_event associated with the epoll
 			//event or fd
