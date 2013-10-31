@@ -29,10 +29,12 @@ typedef struct connection_s
     request_t request;
     int connfd; //connection socket file descriptor
     char path[MAX_PATH_L];
+    char headers[MAX_HEADERS_L];
     int fd;    //request file descriptor
     off_t sent;
+    int read:1;//read or write
     int fin:1; //finished response
-    struct sockaddr addr;
+    struct sockaddr_in addr;
     socklen_t addr_len;
     int (*handle)(struct connection_s *c);
 } connection_t;

@@ -19,6 +19,7 @@
 #define MAX_METHOD_L			128
 #define MAX_URL_L				512
 #define MAX_PATH_L				512
+#define MAX_HEADERS_L           1024
 #define MAX_VERSION_L			16
 #define MAX_CGI_DIR_N			2
 #define MAX_MIME_L				255
@@ -63,7 +64,7 @@ int readline(int fd,char *buf,size_t maxlen);
 //accept a request from the socket
 int accept_request(int connfd,char **request);
 
-int parse_request(request_t request);
+int parse_request(request_t *request);
 
 void verify_request(const char *request);
 
@@ -73,13 +74,13 @@ int process_request(int connfd,const char *request);
 /*Sends and logs a complete error reply to the client.
  * The numeric code specifies the HTTP error code
  */
-void send_error(int connfd,int error_code,const char* message);
+int  send_error(int connfd,int error_code,const char* message);
 
 //Writes a specific HTTP header to the output stream
-void send_headers(int connfd,const char *mimetype,size_t size);
+int send_headers(int connfd,const char *mimetype,size_t size);
 
 //Sends a blank line, indicating the end of the HTTP headers in the response
-void end_headers(int connfd);
+int end_headers(int connfd);
 
 //send the content of a file
 int send_content(int connfd,const char *mime,const char *path);
@@ -113,7 +114,7 @@ char *get_mime_t(char *type,const char *path);
 void error_die(const char *s);
 
 //send error response headers.
-void send_error(int connfd,int code,const char *message);
+int send_error(int connfd,int code,const char *message);
 
 //unimplemented method
 void unimplemented(int connfd);

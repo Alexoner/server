@@ -65,14 +65,14 @@ int http_epoll_add(http_epoll_t *this,int fd,struct epoll_event *data)
         fprintf(stderr,"NULL epoll_event passed\n");
         return -1;
     }
-    else
-    {
-        memcpy(&event,data,sizeof(event));
-    }
+	else
+	{
+		memcpy(&event,data,sizeof(event));
+	}
 
     if(epoll_ctl(this->epfd,EPOLL_CTL_ADD,fd,&event)==-1)
     {
-        perror("epoll_ctl()");
+        perror("http_epoll_add->epoll_ctl()");
         return errno;
     }
 
@@ -84,7 +84,7 @@ int http_epoll_del(http_epoll_t *this,int fd)
 {
     if(epoll_ctl(this->epfd,EPOLL_CTL_DEL,fd,NULL)==-1)
     {
-        perror("epoll_ctl()");
+        perror("http_epoll_del->epoll_ctl()");
         return errno;
     }
     this->used--;
@@ -97,7 +97,7 @@ int http_epoll_wait(http_epoll_t *this,int msec)
 	http_event_t *http_event;
     int i;
     int nfds;
-	int fd=-1;
+	//int fd=-1;
 
     nfds=epoll_wait(this->epfd,this->events,this->used,msec);
 
@@ -156,12 +156,19 @@ int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
 	//int fd=old_event->listenfd;
     memset(c,0,sizeof(*c));
 	memset(new_event,0,sizeof(*new_event));
+
+	//must be initialize it to contain the size (in bytes) of the structure of
+	//c->addr
+	c->addr_len=sizeof(c->addr);
+	c->read=1;
+
 	new_event->listenfd=-1;
 	new_event->data=c;
 	new_event->event_handle=http_connection_handle;
 
-    c->fd=accept(old_event->listenfd,&c->addr,&c->addr_len);
-    if(c->fd==-1)
+
+    c->connfd=accept(old_event->listenfd,(struct sockaddr*)&c->addr,&c->addr_len);
+    if(c->connfd==-1)
     {
         perror("accpet()");
         return errno;
@@ -174,14 +181,15 @@ int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
 			perror("fcntl");
 			return -1;
 		}
-		printf("New connection from %s: %d\tsocket: %d",
-				inet_ntoa(((struct sockaddr_in*)&c->addr)->sin_addr),
+		printf("%s: %d\tsocket: %d\t",
+				inet_ntoa(c->addr.sin_addr),
 				((struct sockaddr_in *)&c->addr)->sin_port,
 				c->fd);
         event.data.ptr=new_event;
-        event.events=EPOLLIN | EPOLLET| EPOLLERR |EPOLLHUP;
+        event.events=EPOLLIN | EPOLLOUT | EPOLLET| EPOLLERR |EPOLLHUP;
         //c->handle=http_connection_handle;
-        http_epoll_add(this,c->fd,&event);
+        http_epoll_add(this,c->connfd,&event);
+		printf("watched new connection\n");
     }
     return 0;
 }
@@ -195,7 +203,13 @@ int http_epoll_add_listen_socket(http_epoll_t *this,int fd)
 
 	e->listenfd=fd;
 	e->event_handle=http_accept_handle;
-	flags=O_RDWR | O_NONBLOCK;
+	flags=fcntl(fd,F_GETFL,0);
+	if(flags==-1)
+	{
+		perror("fcntl F_GETFL");
+		return -1;
+	}
+	flags|= O_NONBLOCK;
 	if(fcntl(e->listenfd,F_SETFL,flags)==-1)
 	{
 		perror("epoll add listen socket");
@@ -205,8 +219,8 @@ int http_epoll_add_listen_socket(http_epoll_t *this,int fd)
 	printf("Added listen socket %d to epoll instance\n",fd);
 
 	event.data.ptr=e;
-	//event.events=EPOLLIN |EPOLLET | EPOLLERR | EPOLLHUP ;
-	event.events=EPOLLIN | EPOLLERR | EPOLLHUP ;
+	event.events=EPOLLIN |EPOLLET | EPOLLERR | EPOLLHUP ;
+	//event.events=EPOLLIN | EPOLLERR | EPOLLHUP ;
 	if(http_epoll_add(this,fd,&event)!=0)
 	{
 		return errno;
@@ -217,11 +231,12 @@ int http_epoll_add_listen_socket(http_epoll_t *this,int fd)
 int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 {
 	connection_t *c=((http_event_t*)eevent->data.ptr)->data;
+	char buf[MAXLINE];
 	if(eevent->events & EPOLLIN)
 	{
-		if(accept_request(c->fd,&c->request.str))
+		if(accept_request(c->connfd,&c->request.str))
 		{
-			parse_request(c->request);
+			parse_request(&c->request);
 			//strncpy(c->path,c->request.path,sizeof(c->path));
 			c->sent=0;
 			if(c->request.cgi)
@@ -235,19 +250,32 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 				}
 				else
 				{
+					serve_static(c->connfd,c->request.path);
+					printf("path: %s\n",c->request.path);
+
 					if((c->fd=open(c->request.path,O_RDONLY))==-1)
 					{
 						fprintf(stderr,"open %s error\n",c->request.path);
 					}
+					c->read=0;
 				}
 			}
 		}
 	}
 	else
 	{//EPOLLOUT
-		http_send(c);
+		if(c->read)
+		{
+			return 0;
+		}
+		//http_send(c);
+		get_mime_t(buf,c->request.path);
+		send_headers(c->connfd,buf,c->request.st.st_size);
+		end_headers(c->connfd);
+		c->sent=c->request.st.st_size;
 		if(c->request.st.st_size==c->sent)
 		{//sending data finished
+			printf("sending data finished\n");
 			c->fin=1;
 			http_epoll_del(this,c->connfd);
 			close(c->connfd);
