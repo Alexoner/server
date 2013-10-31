@@ -110,25 +110,12 @@ int http_epoll_wait(http_epoll_t *this,int msec)
     for(i=0; i<nfds; i++)
     {
         epoll_event=this->events+i;
-		if(epoll_event->events & EPOLLERR)
-		{
-			fprintf(stderr,"EPOLLERR occured on fd\n");
-			continue;
-		}
-		else if(epoll_event->events & EPOLLHUP)
-		{
-			fprintf(stderr,"EPOLLHUP occured on fd\n");
-			continue;
-		}
-		else if(epoll_event->events &(EPOLLIN | EPOLLOUT) )
-		{//ready for read
-			printf("events: %x\n",epoll_event->events);
-			http_event = (http_event_t*)epoll_event->data.ptr;
-			//get the corresponding http_event associated with the epoll
-			//event or fd
-			http_event->event_handle(this,epoll_event);
-			continue;
-		}
+		printf("events: %x\n",epoll_event->events);
+		http_event = (http_event_t*)epoll_event->data.ptr;
+		//get the corresponding http_event associated with the epoll
+		//event or fd
+		http_event->event_handle(this,epoll_event);
+		continue;
     }
     return 0;
 }
@@ -148,8 +135,17 @@ int http_epoll_wait(http_epoll_t *this,int msec)
 
 int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
 {
-    connection_t *c=(connection_t*)malloc(sizeof(connection_t));
 	http_event_t *old_event=(http_event_t*)eevent->data.ptr;
+	if(eevent->events & EPOLLERR)
+	{
+		fprintf(stderr,"EPOLLERR occured on fd %d\n",old_event->listenfd);
+	}
+	else if(eevent->events & EPOLLHUP)
+	{
+		fprintf(stderr,"EPOLLHUP occured on fd %d\n",old_event->listenfd);
+	}
+
+    connection_t *c=(connection_t*)malloc(sizeof(connection_t));
 	http_event_t *new_event=(http_event_t*)malloc(sizeof(*new_event));
     struct epoll_event event;
     int flags;
@@ -175,8 +171,14 @@ int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
     }
     else
     {
-        flags=O_RDWR |O_NONBLOCK;
-        if(fcntl(c->fd,F_SETFL,flags)==-1)
+		flags=fcntl(c->connfd,F_GETFL,0);
+		if(flags==-1)
+		{
+			perror("fcntl:F_GETFL");
+			return -1;
+		}
+        flags|=O_NONBLOCK;
+        if(fcntl(c->connfd,F_SETFL,flags)==-1)
 		{
 			perror("fcntl");
 			return -1;
@@ -184,7 +186,7 @@ int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
 		printf("%s: %d\tsocket: %d\t",
 				inet_ntoa(c->addr.sin_addr),
 				((struct sockaddr_in *)&c->addr)->sin_port,
-				c->fd);
+				c->connfd);
         event.data.ptr=new_event;
         event.events=EPOLLIN | EPOLLOUT | EPOLLET| EPOLLERR |EPOLLHUP;
         //c->handle=http_connection_handle;
@@ -232,7 +234,16 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 {
 	connection_t *c=((http_event_t*)eevent->data.ptr)->data;
 	char buf[MAXLINE];
-	if(eevent->events & EPOLLIN)
+
+	if(eevent->events & EPOLLERR)
+	{
+		fprintf(stderr,"EPOLLERR occured on fd %d\n",c->connfd);
+	}
+	else if(eevent->events & EPOLLHUP)
+	{
+		fprintf(stderr,"EPOLLHUP occured on fd %d\n",c->connfd);
+	}
+	else if(eevent->events & EPOLLIN)
 	{
 		if(accept_request(c->connfd,&c->request.str))
 		{
