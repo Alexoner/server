@@ -33,6 +33,7 @@ typedef struct connection_s
     int fd;    //request file descriptor
     off_t sent;
     int read:1;//read or write
+    int sendheaders:1;//send headers or file
     int fin:1; //finished response
     struct sockaddr_in addr;
     socklen_t addr_len;
@@ -66,6 +67,7 @@ int http_epoll_event_handle(http_epoll_t *this,http_event_t *e);
 int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent);
 int http_epoll_add_listen_socket(http_epoll_t *this,int fd);
 int http_connection_handle(http_epoll_t *c,struct epoll_event *eevent);
+int http_connection_headers(connection_t *c);
 int http_send(connection_t *c);
 
 #endif

@@ -23,7 +23,7 @@
 #define MAX_VERSION_L			16
 #define MAX_CGI_DIR_N			2
 #define MAX_MIME_L				255
-#define SERVER					"Server:HTTP/0.1 C/99"
+#define SERVER					"HTTP/0.1 C/99"
 #define CONTENT_LENGTH_S		"Content-Length:"
 
 #define DEBUG					1

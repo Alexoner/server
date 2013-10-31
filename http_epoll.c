@@ -237,7 +237,6 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 		if(accept_request(c->connfd,&c->request.str))
 		{
 			parse_request(&c->request);
-			//strncpy(c->path,c->request.path,sizeof(c->path));
 			c->sent=0;
 			if(c->request.cgi)
 			{//executable file for dynamic request
@@ -250,29 +249,25 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 				}
 				else
 				{
-					serve_static(c->connfd,c->request.path);
-					printf("path: %s\n",c->request.path);
-
+					//serve_static(c->connfd,c->request.path);
+					http_connection_headers(c);
 					if((c->fd=open(c->request.path,O_RDONLY))==-1)
 					{
 						fprintf(stderr,"open %s error\n",c->request.path);
 					}
-					c->read=0;
+					c->sendheaders=1;
+					c->read=0;   //we are writing to socket from now on
 				}
 			}
 		}
 	}
-	else
+	if(eevent->events & EPOLLOUT)
 	{//EPOLLOUT
 		if(c->read)
 		{
 			return 0;
 		}
-		//http_send(c);
-		get_mime_t(buf,c->request.path);
-		send_headers(c->connfd,buf,c->request.st.st_size);
-		end_headers(c->connfd);
-		c->sent=c->request.st.st_size;
+		http_send(c);
 		if(c->request.st.st_size==c->sent)
 		{//sending data finished
 			printf("sending data finished\n");
@@ -287,49 +282,109 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
     return 0;
 }
 
+int http_connection_headers(connection_t *c)
+{
+	char buf[MAXLINE];
+	sprintf(c->headers,"HTTP/1.0 200 OK\r\n");
+	strcat(c->headers,"Server: ");
+	strcat(c->headers,SERVER);
+	strcat(c->headers,"\r\n");
+	get_mime_t(buf,c->request.path);
+	strcat(c->headers,"Content-Type: ");
+	strcat(c->headers,buf);
+	strcat(c->headers,"\r\n");
+	strcat(c->headers,"Content-Length: ");
+	sprintf(buf,"%ld",c->request.st.st_size);
+	strcat(c->headers,buf);
+	strcat(c->headers,"\r\n\r\n");
+	return 0;
+}
+
 int http_request_handle(request_t request)
 {
 	return 0;
 }
 
-
 int http_send(connection_t *c)
 {
-	int n,ns=0,nr=0;
+	int n,ns=0,nr=0,l;
 	char buf[MAXLINE];
-	if(lseek(c->fd,c->sent,SEEK_SET)==-1)
+	if(c->sendheaders)
 	{
-		return -1;
-	}
-	while(1)
-	{
-		nr=read(c->fd,buf,sizeof(buf));
-		if(nr>0)
+		l=strlen(c->headers)-c->sent;
+		while(l)
 		{
-			n=send(c->connfd,buf,nr,0);
+			n=send(c->connfd,c->headers+c->sent,l,0);
 			if(n>0)
 			{
 				ns+=n;
+				l-=n;
+			}
+			else if(n==-1)
+			{
+				if(errno==EAGAIN)
+				{
+					perror("send");
+					fprintf(stderr,"EAGAIN\n");
+					break;
+				}
+				else
+				{
+					perror("send");
+					return -1;
+				}
+			}
+			else if(n==0)
+			{//sending finished
+				break;
 			}
 		}
-		else if(nr==0)
-		{//end of file
-			break;
+		c->sent+=ns;
+		if(l==0)
+		{
+			c->sendheaders=0;
+			c->sent=0;
+			l=c->request.st.st_size;
+			ns=0;
 		}
-		else
-		{//error
-			if(errno==EAGAIN)
+	}
+	if(c->sendheaders==0)
+	{
+		if(lseek(c->fd,c->sent,SEEK_SET)==-1)
+		{
+			return -1;
+		}
+		while(l)
+		{
+			nr=read(c->fd,buf,sizeof(buf));
+			if(nr>0)
 			{
-				fprintf(stderr,"EAGAIN\n");
+				n=send(c->connfd,buf,nr,0);
+				if(n>0)
+				{
+					ns+=n;
+					l-=n;
+				}
+			}
+			else if(nr==0)
+			{//end of file
 				break;
 			}
 			else
-			{
-				return -1;
+			{//error
+				if(errno==EAGAIN)
+				{
+					fprintf(stderr,"EAGAIN\n");
+					break;
+				}
+				else
+				{
+					return -1;
+				}
 			}
 		}
+		c->sent+=ns;
 	}
-	c->sent+=ns;
 	return ns;
 }
 
