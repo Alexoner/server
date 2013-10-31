@@ -1,6 +1,6 @@
 CFLAGS=-g -Wall -lpthread
 
-httpd:httpd.o http_urldecode.o
+httpd:httpd.o http_urldecode.o http_epoll.o
 	$(CC) -o $@ $^ $(CFLAGS)
 httpd.o:httpd.c 
 	$(CC) -c -o $@ $^ $(CFLAGS)

@@ -34,7 +34,7 @@
 #include <stdio.h>
 
 #include "httpd.h"
-
+#include "http_epoll.h"
 #include "http_urldecode.h"
 
 
@@ -76,12 +76,7 @@ typedef enum
 } request;
 */
 
-struct request
-{
-    char method[MAX_METHOD_L];
-    char url[MAX_URL_L];
-    char *query_string;
-};
+extern http_epoll_t http_epoll;
 
 char root_dir[MAX_PATH_L];
 char *cgi_dir[2]= {"cgi-bin","htdocs"};
@@ -161,6 +156,19 @@ int serve_forever(int listenfd)
     return 0;
 }
 
+int serve_forever_epoll(int listenfd)
+{
+	signal(SIGPIPE,SIG_IGN);//ignore the SIGPIPE signal
+	http_epoll_init(&http_epoll,1000);
+	http_epoll_add_listen_socket(&http_epoll,listenfd);
+    while(1)
+    {
+		http_epoll_wait(&http_epoll,1000);
+		continue;
+    }
+    return 0;
+}
+
 int handle_request(int connfd)
 {
 	pthread_t tid;
@@ -235,6 +243,71 @@ int accept_request(int connfd,char **request)
         free(*request);
         return 0;
     }
+}
+
+int parse_request(request_t request)
+{
+	char ns,c;
+	char *s=NULL;
+	char buf[MAX_PATH_L];
+	int i;
+    if(!request.str)
+        return -1;
+    if((ns=sscanf(request.str,"%s %s %s",request.method,buf,request.version))!=3)
+    {
+		return -1;
+    }
+	urldecode(buf,request.url);
+    printf("%s",request.url);
+    //process for different methods
+    if(!strcasecmp(request.method,"GET"))
+    {
+        //GET method
+        if((s=strchr(request.url,'?')))
+        {
+            //is a cgi program
+            request.cgi=1;
+            //sprintf(path,"%s",cgi_path);
+            //strncat(path,url,s-url);
+            sscanf(request.url,"%[^?]",buf);//file path
+            sprintf(request.path,"%s%s",root_dir,buf);//prefix of its relative path
+            sscanf(request.url,"%*[^?]?%s",request.arg);//query string parameters
+        }
+        else
+        {
+            //sscanf(url,"%s",buf);
+            strcpy(buf,request.url);
+            sprintf(request.path,"%s%s",root_dir,buf);
+            for(i=0; i<MAX_CGI_DIR_N; i++)
+            {
+                if((s=strstr(request.url,cgi_dir[i])))
+                {
+                    if(s[-1]=='/'&&s[strlen(cgi_dir[i])]=='/')
+                    {
+                        //a cgi program,no arguments passed
+                        request.cgi=1;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    else if(!strcasecmp(request.method,"POST"))
+    {
+        //POST method
+        request.cgi=1;
+        //sscanf(url,"%s",buf);
+        strcpy(request.url,buf);
+		printf("url: %s\n",buf);
+        sprintf(request.path,"%s%s",root_dir,buf);
+    }
+	if(stat(request.path,&request.st)==-1)
+	{//check file existance
+		request.notfound=1;
+		fprintf(stderr,"%s not found.\n",request.path);
+		return -1;
+	}
+	return 0;
 }
 
 int process_request(int connfd,const char *request)
@@ -882,7 +955,7 @@ int main(int argc,char **argv)
 
     listenfd=startserver(&listenfd,&port);
     printf("NHW httpd is running on port %d\n",port);
-    serve_forever(listenfd);
+    serve_forever_epoll(listenfd);
 
     close(listenfd);
     return 0;

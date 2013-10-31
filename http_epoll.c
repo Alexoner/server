@@ -5,51 +5,19 @@
     > Created Time: Mon 28 Oct 2013 09:16:37 PM CST
  ************************************************************************/
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
-#include <sys/epoll.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <string.h>
-
 #include "httpd.h"
+#include "http_epoll.h"
 
-typedef struct http_event_s
-{
-    void *data;//points to the connction_t or a
-    int listenfd;//listening file descriptor,-1 when it's not
-    int (*event_handle)(struct http_event_s *e);
-} http_event_t;
 
-typedef struct connection_s
-{
-    void *data;
-    int fd; //connection socket file descriptor
-    char path[MAX_PATH_L];
-    off_t sent;
-    struct sockaddr addr;
-    socklen_t addr_len;
-    int (*handle)(struct connection_s *c);
-} connection_t;
+/**There should be unified data structure registered with epoll
+ * otherwise,it's impossible to identify the data.ptr field's object type
+ **/
 
-typedef struct http_epoll_s
-{
-    //encapsulate basic data for epoll operation
-    int epfd;
-    int size;
-    int used;
-    struct epoll_event *events;
-} http_epoll_t;
+
+http_epoll_t http_epoll;
 
 int http_epoll_init(http_epoll_t *this,int size)
 {
-    int i;
-
     if(size<=0)
     {
         return -1;
@@ -126,6 +94,7 @@ int http_epoll_del(http_epoll_t *this,int fd)
 int http_epoll_wait(http_epoll_t *this,int msec)
 {
     struct epoll_event *epoll_event=NULL;
+	http_event_t *http_event;
     int i;
     int nfds;
 	int fd=-1;
@@ -151,81 +120,47 @@ int http_epoll_wait(http_epoll_t *this,int msec)
 			fprintf(stderr,"EPOLLHUP occured on fd\n");
 			continue;
 		}
-		else if(epoll_event->events &EPOLLIN )
+		else if(epoll_event->events &(EPOLLIN | EPOLLOUT) )
 		{//ready for read
-			printf("EPOLLIN\n");
-			return -1;
-			struct epoll_event ee;
-			ee.events=EPOLLOUT |EPOLLERR |EPOLLHUP;
-			//http_connection_handle(
-			fd=((connection_t*)((http_event_t*)epoll_event->data.ptr)->data)->fd;
-			if(((http_event_t*)epoll_event->data.ptr)->listenfd==-1)
-			{
-				epoll_ctl(this->epfd,EPOLL_CTL_MOD,fd,&ee);
-				//send_error(((connection_t*)((http_event_t*)epoll_event->data.ptr)->data)->fd,7,"testing epoll\n");
-			}
+			printf("EPOLLIN | EPOLLOUT\n");
+			http_event = (http_event_t*)epoll_event->data.ptr;
+			//get the corresponding http_event associated with the epoll
+			//event or fd
+			http_event->event_handle(this,epoll_event);
 			continue;
 		}
-		else if(epoll_event->events & EPOLLOUT)
-		{
-			//send_error(((connection_t*)((http_event_t*)epoll_event->data.ptr)->data)->fd,7,"testing epoll\n");
-			continue;
-		}
-        //TO handle these file descriptors
-        if(((http_event_t*)epoll_event->data.ptr)->event_handle(epoll_event)!=0)
-        {
-            fprintf(stderr,"handling error for %dth event\n",i);
-        }
     }
     return 0;
 }
 
-int http_epoll_event_handle(http_event_t *e)
+/*int http_epoll_event_handle(http_epoll_t *this,struct epoll_event *ee)
 {
-    if (event->events & EPOLLIN)
-    {
-    }
-    else
-    {
-        switch (event->events)
-        {
-        case EPOLLOUT:
-        {
-            //apex_log_info("fd %d Event:EPOLLOUT %d\n", fd, event->events);
-            if(data)
-            {
-                //send( fd,data,strlen(data),0);
-                //apex_log_info("Event:EPOLLOUT %s\n", data);
-                apex_http_response((char*)data, &apex_epoll, fd);
-            }
-            apex_epoll_set( &apex_epoll, fd, EPOLLIN, NULL);
-        }
-        break;
-
-        case EPOLLERR:
-            apex_log_info("fd %d Event:EPOLLERR %d\n", fd, event->events);
-            break;
-        case EPOLLHUP:
-            apex_log_info("fd %d Event:EPOLLHUP %d\n", fd, event->events);
-            apex_epoll_del( &apex_epoll, fd);
-            break;
-        default:
-            apex_log_info("fd %d Event: %d\n", fd, event->events);
-            break;
-        }
-    }
-
+	http_event_t *e=ee->data.ptr;
+	connection_t *c=e->data;
+	if(!e || !c)
+	{
+		fprintf("http_epoll_event_handle: NULL pointer\n");
+		return -1;
+	}
+	e->event_handle(this,e);
     return 0;
-}
+}*/
 
-int http_epoll_accept(http_epoll_t *this,http_event_t *e)
+int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
 {
     connection_t *c=(connection_t*)malloc(sizeof(connection_t));
+	http_event_t *old_event=(http_event_t*)eevent->data.ptr;
+	http_event_t *new_event=(http_event_t*)malloc(sizeof(*new_event));
     struct epoll_event event;
     int flags;
+	//int fd=old_event->listenfd;
     memset(c,0,sizeof(*c));
+	memset(new_event,0,sizeof(*new_event));
+	new_event->listenfd=-1;
+	new_event->data=c;
+	new_event->event_handle=http_connection_handle;
 
-    c->fd=accept(e->listenfd,&c->addr,&c->addr_len);
+    c->fd=accept(old_event->listenfd,&c->addr,&c->addr_len);
     if(c->fd==-1)
     {
         perror("accpet()");
@@ -239,7 +174,11 @@ int http_epoll_accept(http_epoll_t *this,http_event_t *e)
 			perror("fcntl");
 			return -1;
 		}
-        event.data.ptr=c;
+		printf("New connection from %s: %d\tsocket: %d",
+				inet_ntoa(((struct sockaddr_in*)&c->addr)->sin_addr),
+				((struct sockaddr_in *)&c->addr)->sin_port,
+				c->fd);
+        event.data.ptr=new_event;
         event.events=EPOLLIN | EPOLLET| EPOLLERR |EPOLLHUP;
         //c->handle=http_connection_handle;
         http_epoll_add(this,c->fd,&event);
@@ -254,8 +193,8 @@ int http_epoll_add_listen_socket(http_epoll_t *this,int fd)
 	int flags=0;
 	memset(&event,0,sizeof(event));
 
-	e=(http_event_t*)event.data.ptr;
 	e->listenfd=fd;
+	e->event_handle=http_accept_handle;
 	flags=O_RDWR | O_NONBLOCK;
 	if(fcntl(e->listenfd,F_SETFL,flags)==-1)
 	{
@@ -263,13 +202,106 @@ int http_epoll_add_listen_socket(http_epoll_t *this,int fd)
 		return -1;
 	}
 
+	printf("Added listen socket %d to epoll instance\n",fd);
+
 	event.data.ptr=e;
-	event.events=EPOLLIN | EPOLLERR | EPOLLHUP |EPOLLET;
-	http_epoll_add(this,fd,&event);
+	//event.events=EPOLLIN |EPOLLET | EPOLLERR | EPOLLHUP ;
+	event.events=EPOLLIN | EPOLLERR | EPOLLHUP ;
+	if(http_epoll_add(this,fd,&event)!=0)
+	{
+		return errno;
+	}
+	return 0;
 }
 
-int http_connection_handle(connection_t *c)
+int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 {
+	connection_t *c=((http_event_t*)eevent->data.ptr)->data;
+	if(eevent->events & EPOLLIN)
+	{
+		if(accept_request(c->fd,&c->request.str))
+		{
+			parse_request(c->request);
+			//strncpy(c->path,c->request.path,sizeof(c->path));
+			c->sent=0;
+			if(c->request.cgi)
+			{//executable file for dynamic request
+			}
+			else if(!strcmp(c->request.method,"GET"))
+			{//static files
+				if(S_ISDIR(c->request.st.st_mode))
+				{//request for directory
+
+				}
+				else
+				{
+					if((c->fd=open(c->request.path,O_RDONLY))==-1)
+					{
+						fprintf(stderr,"open %s error\n",c->request.path);
+					}
+				}
+			}
+		}
+	}
+	else
+	{//EPOLLOUT
+		http_send(c);
+		if(c->request.st.st_size==c->sent)
+		{//sending data finished
+			c->fin=1;
+			http_epoll_del(this,c->connfd);
+			close(c->connfd);
+			close(c->fd);
+			free(c);
+			free(eevent);
+		}
+	}
     return 0;
+}
+
+int http_request_handle(request_t request)
+{
+	return 0;
+}
+
+
+int http_send(connection_t *c)
+{
+	int n,ns=0,nr=0;
+	char buf[MAXLINE];
+	if(lseek(c->fd,c->sent,SEEK_SET)==-1)
+	{
+		return -1;
+	}
+	while(1)
+	{
+		nr=read(c->fd,buf,sizeof(buf));
+		if(nr>0)
+		{
+			n=send(c->connfd,buf,nr,0);
+			if(n>0)
+			{
+				ns+=n;
+			}
+		}
+		else if(nr==0)
+		{//end of file
+			break;
+		}
+		else
+		{//error
+			if(errno==EAGAIN)
+			{
+				fprintf(stderr,"EAGAIN\n");
+				break;
+			}
+			else
+			{
+				return -1;
+			}
+		}
+	}
+	c->sent+=ns;
+	return ns;
 }
 
