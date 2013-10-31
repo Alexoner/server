@@ -34,6 +34,7 @@ typedef struct connection_s
     off_t sent;
     int read:1;//read or write
     int sendheaders:1;//send headers or file
+    int senddata:1;   //error request and error page not found
     int fin:1; //finished response
     struct sockaddr_in addr;
     socklen_t addr_len;
@@ -61,9 +62,12 @@ typedef struct http_event_s
 int http_epoll_init(http_epoll_t *this,int size);
 int http_epoll_close(http_epoll_t *this);
 int http_epoll_add(http_epoll_t *this,int fd,struct epoll_event *data);
-int http_epoll_del(http_epoll_t *this,int fd);
+int http_epoll_del(http_epoll_t *this,int fd,struct epoll_event *eevent);
 int http_epoll_wait(http_epoll_t *this,int msec);
 int http_epoll_event_handle(http_epoll_t *this,http_event_t *e);
+int http_connection_error_page(connection_t *c,int errcode);
+int http_connection_error_headers(connection_t *c,
+		int code,const char *message);
 int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent);
 int http_epoll_add_listen_socket(http_epoll_t *this,int fd);
 int http_connection_handle(http_epoll_t *c,struct epoll_event *eevent);

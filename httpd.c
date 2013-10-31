@@ -304,7 +304,6 @@ int parse_request(request_t *request)
 	if(stat(request->path,&request->st)==-1)
 	{//check file existance
 		request->notfound=1;
-		fprintf(stderr,"%s not found.\n",request->path);
 		return -1;
 	}
 	return 0;

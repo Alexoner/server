@@ -74,7 +74,7 @@ int process_request(int connfd,const char *request);
 /*Sends and logs a complete error reply to the client.
  * The numeric code specifies the HTTP error code
  */
-int  send_error(int connfd,int error_code,const char* message);
+int send_error(int connfd,int error_code,const char* message);
 
 //Writes a specific HTTP header to the output stream
 int send_headers(int connfd,const char *mimetype,size_t size);

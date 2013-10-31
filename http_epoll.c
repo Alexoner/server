@@ -80,14 +80,23 @@ int http_epoll_add(http_epoll_t *this,int fd,struct epoll_event *data)
     return 0;
 }
 
-int http_epoll_del(http_epoll_t *this,int fd)
+int http_epoll_del(http_epoll_t *this,int fd,struct epoll_event *eevent)
 {
+	http_event_t *e=(http_event_t*)eevent->data.ptr;
+	connection_t *c=e->data;
     if(epoll_ctl(this->epfd,EPOLL_CTL_DEL,fd,NULL)==-1)
     {
         perror("http_epoll_del->epoll_ctl()");
         return errno;
     }
     this->used--;
+	close(c->connfd);
+	if(c->fd>0)
+	{
+		close(c->fd);
+	}
+	free(c);
+	free(e);
     return 0;
 }
 
@@ -138,11 +147,11 @@ int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
 	http_event_t *old_event=(http_event_t*)eevent->data.ptr;
 	if(eevent->events & EPOLLERR)
 	{
-		fprintf(stderr,"EPOLLERR occured on fd %d\n",old_event->listenfd);
+		fprintf(stderr,"EPOLLERR occured on listening fd %d\n",old_event->listenfd);
 	}
 	else if(eevent->events & EPOLLHUP)
 	{
-		fprintf(stderr,"EPOLLHUP occured on fd %d\n",old_event->listenfd);
+		fprintf(stderr,"EPOLLHUP occured on listening fd %d\n",old_event->listenfd);
 	}
 
     connection_t *c=(connection_t*)malloc(sizeof(connection_t));
@@ -191,7 +200,6 @@ int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
         event.events=EPOLLIN | EPOLLOUT | EPOLLET| EPOLLERR |EPOLLHUP;
         //c->handle=http_connection_handle;
         http_epoll_add(this,c->connfd,&event);
-		printf("watched new connection\n");
     }
     return 0;
 }
@@ -233,22 +241,33 @@ int http_epoll_add_listen_socket(http_epoll_t *this,int fd)
 int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 {
 	connection_t *c=((http_event_t*)eevent->data.ptr)->data;
-	char buf[MAXLINE];
+	//char buf[MAXLINE];
 
 	if(eevent->events & EPOLLERR)
 	{
-		fprintf(stderr,"EPOLLERR occured on fd %d\n",c->connfd);
+		fprintf(stderr,"EPOLLERR occured on connection fd %d\n",c->connfd);
+		return -1;
 	}
 	else if(eevent->events & EPOLLHUP)
 	{
-		fprintf(stderr,"EPOLLHUP occured on fd %d\n",c->connfd);
+		fprintf(stderr,"EPOLLHUP occured on connection fd %d\n",c->connfd);
+		return -1;
 	}
 	else if(eevent->events & EPOLLIN)
-	{
-		if(accept_request(c->connfd,&c->request.str))
+	{//EPOLLIN:available for read
+		if(c->read && accept_request(c->connfd,&c->request.str))
 		{
 			parse_request(&c->request);
+			fprintf(stdout,"%s",c->request.str);
 			c->sent=0;
+			if(c->request.notfound)
+			{//file not found
+				http_connection_error_headers(c,404,"Not found");
+				http_connection_error_page(c,404);
+				c->senddata=1;
+				http_send(c);
+				http_epoll_del(this,c->connfd,eevent);
+			}
 			if(c->request.cgi)
 			{//executable file for dynamic request
 			}
@@ -275,7 +294,7 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 	if(eevent->events & EPOLLOUT)
 	{//EPOLLOUT
 		if(c->read)
-		{
+		{//reading data,not writing to it,so aborting
 			return 0;
 		}
 		http_send(c);
@@ -283,11 +302,10 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 		{//sending data finished
 			printf("sending data finished\n");
 			c->fin=1;
-			http_epoll_del(this,c->connfd);
-			close(c->connfd);
-			close(c->fd);
-			free(c);
-			free(eevent);
+		}
+		if(c->fin)
+		{
+			http_epoll_del(this,c->connfd,eevent);
 		}
 	}
     return 0;
@@ -305,9 +323,27 @@ int http_connection_headers(connection_t *c)
 	strcat(c->headers,buf);
 	strcat(c->headers,"\r\n");
 	strcat(c->headers,"Content-Length: ");
-	sprintf(buf,"%ld",c->request.st.st_size);
+	sprintf(buf,"%ld\r\n",c->request.st.st_size);
 	strcat(c->headers,buf);
-	strcat(c->headers,"\r\n\r\n");
+	strcat(c->headers,"Host: Linux\r\n");
+	strcat(c->headers,"\r\n");
+	return 0;
+}
+
+int http_connection_error_page(connection_t *c,int errcode)
+{
+	strcat(c->headers,"<html><title>404 Not Found</title>\r\n"
+			"<body>The request file was not found on the server"
+			"</body\r\n</html>\r\n");
+	return 0;
+}
+
+int http_connection_error_headers(connection_t *c,
+		int code,const char *message)
+{
+	sprintf(c->headers,"HTTP/1.0 %d %s\r\n",code,message);
+	strcat(c->headers,"Content-Type: text/html\r\n");
+	strcat(c->headers,"\r\n");
 	return 0;
 }
 
@@ -319,7 +355,8 @@ int http_request_handle(request_t request)
 int http_send(connection_t *c)
 {
 	int n,ns=0,nr=0,l;
-	char buf[MAXLINE];
+	//char buf[MAXLINE];
+	char buf[10];
 	if(c->sendheaders)
 	{
 		l=strlen(c->headers)-c->sent;
@@ -359,10 +396,16 @@ int http_send(connection_t *c)
 			ns=0;
 		}
 	}
-	if(c->sendheaders==0)
-	{
+	if(c->sendheaders==0 )
+	{//sending file ,not headers
+		if(c->senddata)
+		{
+			c->fin=1;
+			return 0;
+		}
 		if(lseek(c->fd,c->sent,SEEK_SET)==-1)
 		{
+			perror("lseek");
 			return -1;
 		}
 		while(l)
@@ -371,10 +414,22 @@ int http_send(connection_t *c)
 			if(nr>0)
 			{
 				n=send(c->connfd,buf,nr,0);
-				if(n>0)
+				if(n==nr)
 				{
 					ns+=n;
 					l-=n;
+				}
+				else
+				{
+					if(errno==EAGAIN)
+					{
+						fprintf(stderr,"EAGAIN\n");
+						break;
+					}
+					else
+					{
+						return -1;
+					}
 				}
 			}
 			else if(nr==0)
@@ -383,15 +438,6 @@ int http_send(connection_t *c)
 			}
 			else
 			{//error
-				if(errno==EAGAIN)
-				{
-					fprintf(stderr,"EAGAIN\n");
-					break;
-				}
-				else
-				{
-					return -1;
-				}
 			}
 		}
 		c->sent+=ns;
