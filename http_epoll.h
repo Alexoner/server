@@ -38,6 +38,8 @@ typedef struct connection_s
     int fin:1; //finished response
     struct sockaddr_in addr;
     socklen_t addr_len;
+    char ip[16];
+    int port;
     int (*handle)(struct connection_s *c);
 } connection_t;
 

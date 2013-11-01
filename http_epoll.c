@@ -91,6 +91,7 @@ int http_epoll_del(http_epoll_t *this,int fd,struct epoll_event *eevent)
     }
     this->used--;
 	close(c->connfd);
+	fprintf(stderr,"closed socket %d on %s\n",c->connfd,c->ip);
 	if(c->fd>0)
 	{
 		close(c->fd);
@@ -119,28 +120,15 @@ int http_epoll_wait(http_epoll_t *this,int msec)
     for(i=0; i<nfds; i++)
     {
         epoll_event=this->events+i;
-		printf("events: %x\n",epoll_event->events);
+		//printf("events: %x\n",epoll_event->events);
 		http_event = (http_event_t*)epoll_event->data.ptr;
 		//get the corresponding http_event associated with the epoll
 		//event or fd
-		http_event->event_handle(this,epoll_event);
+		http_event->event_handle(this,epoll_event); //callback
 		continue;
     }
     return 0;
 }
-
-/*int http_epoll_event_handle(http_epoll_t *this,struct epoll_event *ee)
-{
-	http_event_t *e=ee->data.ptr;
-	connection_t *c=e->data;
-	if(!e || !c)
-	{
-		fprintf("http_epoll_event_handle: NULL pointer\n");
-		return -1;
-	}
-	e->event_handle(this,e);
-    return 0;
-}*/
 
 int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
 {
@@ -192,9 +180,11 @@ int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent)
 			perror("fcntl");
 			return -1;
 		}
+		strcpy(c->ip,inet_ntoa(c->addr.sin_addr));
+		c->port=c->addr.sin_port;
 		printf("%s: %d\tsocket: %d\t",
-				inet_ntoa(c->addr.sin_addr),
-				((struct sockaddr_in *)&c->addr)->sin_port,
+				c->ip,
+				c->addr->sin_port,
 				c->connfd);
         event.data.ptr=new_event;
         event.events=EPOLLIN | EPOLLOUT | EPOLLET| EPOLLERR |EPOLLHUP;
@@ -300,7 +290,6 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 		http_send(c);
 		if(c->request.st.st_size==c->sent)
 		{//sending data finished
-			printf("sending data finished\n");
 			c->fin=1;
 		}
 		if(c->fin)
@@ -356,7 +345,7 @@ int http_send(connection_t *c)
 {
 	int n,ns=0,nr=0,l;
 	//char buf[MAXLINE];
-	char buf[10];
+	char buf[6291456];
 	if(c->sendheaders)
 	{
 		l=strlen(c->headers)-c->sent;
@@ -403,44 +392,54 @@ int http_send(connection_t *c)
 			c->fin=1;
 			return 0;
 		}
-		if(lseek(c->fd,c->sent,SEEK_SET)==-1)
-		{
-			perror("lseek");
-			return -1;
-		}
 		while(l)
 		{
+			if(lseek(c->fd,c->sent,SEEK_SET)==-1)
+			{//continue after last time send
+				perror("lseek");
+				return -1;
+			}
+
 			nr=read(c->fd,buf,sizeof(buf));
 			if(nr>0)
 			{
 				n=send(c->connfd,buf,nr,0);
-				if(n==nr)
-				{
-					ns+=n;
-					l-=n;
-				}
-				else
-				{
+				if(n==-1)
+				{//error occured
 					if(errno==EAGAIN)
 					{
-						fprintf(stderr,"EAGAIN\n");
+						fprintf(stderr,"socket would block\n");
 						break;
 					}
 					else
 					{
-						return -1;
+						perror("send");
+						break;
+					}
+				}
+				else
+				{//sending data without errors
+					c->sent+=n;
+					l-=n;
+
+					if(n!=nr)
+					{//send less data than read
+						fprintf(stderr,"sent %d less than read %d\n",n,nr);
 					}
 				}
 			}
 			else if(nr==0)
 			{//end of file
+				fprintf(stderr,"End of file\n");
 				break;
 			}
 			else
-			{//error
+			{
+				//error in read data from fd wait for next epoll_wait cycle to
+				//continue sending data to the socket. TO DO.
+				fprintf(stderr,"reading data from fd error\n");
 			}
 		}
-		c->sent+=ns;
 	}
 	return ns;
 }

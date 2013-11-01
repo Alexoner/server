@@ -15,7 +15,7 @@
 #define DEFAULT_PORT			9117
 #define ROOT_DIR				""
 #define MAX_NAME_VALUE			255
-#define MAXLINE					1024
+#define MAXLINE					65535
 #define MAX_METHOD_L			128
 #define MAX_URL_L				512
 #define MAX_PATH_L				512
