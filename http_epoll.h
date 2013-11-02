@@ -29,11 +29,25 @@ typedef struct connection_s
     request_t request;
     int connfd; //connection socket file descriptor
     char path[MAX_PATH_L];
+<<<<<<< HEAD
     int fd;    //request file descriptor
     off_t sent;
     int fin:1; //finished response
     struct sockaddr addr;
     socklen_t addr_len;
+=======
+    char headers[MAX_HEADERS_L];
+    int fd;    //request file descriptor
+    off_t sent;
+    int read:1;//read or write
+    int sendheaders:1;//send headers or file
+    int senddata:1;   //error request and error page not found
+    int fin:1; //finished response
+    struct sockaddr_in addr;
+    socklen_t addr_len;
+    char ip[16];
+    int port;
+>>>>>>> develop
     int (*handle)(struct connection_s *c);
 } connection_t;
 
@@ -58,6 +72,7 @@ typedef struct http_event_s
 int http_epoll_init(http_epoll_t *this,int size);
 int http_epoll_close(http_epoll_t *this);
 int http_epoll_add(http_epoll_t *this,int fd,struct epoll_event *data);
+<<<<<<< HEAD
 int http_epoll_del(http_epoll_t *this,int fd);
 int http_epoll_wait(http_epoll_t *this,int msec);
 int http_epoll_event_handle(http_epoll_t *this,http_event_t *e);
@@ -66,4 +81,21 @@ int http_epoll_add_listen_socket(http_epoll_t *this,int fd);
 int http_connection_handle(http_epoll_t *c,struct epoll_event *eevent);
 int http_send(connection_t *c);
 
+=======
+int http_epoll_del(http_epoll_t *this,int fd,struct epoll_event *eevent);
+int http_epoll_wait(http_epoll_t *this,int msec);
+int http_epoll_event_handle(http_epoll_t *this,http_event_t *e);
+int http_connection_error_page(connection_t *c,int errcode);
+int http_connection_error_headers(connection_t *c,
+		int code,const char *message);
+int http_accept_handle(http_epoll_t *this,struct epoll_event *eevent);
+int http_epoll_add_listen_socket(http_epoll_t *this,int fd);
+int http_connection_handle(http_epoll_t *c,struct epoll_event *eevent);
+int http_connection_headers(connection_t *c);
+int http_send(connection_t *c);
+int http_recv(connection_t *c);
+
+//utils
+int setnonblock(int fd);
+>>>>>>> develop
 #endif

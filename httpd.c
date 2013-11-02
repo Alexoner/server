@@ -134,7 +134,7 @@ int serve_forever(int listenfd)
 {
     int connfd;
     struct sockaddr_in connaddr;//IPv4 socket address for connection
-    char *request=NULL;
+
     int len=sizeof(connfd);
 	signal(SIGPIPE,SIG_IGN);//ignore the SIGPIPE signal
     while(1)
@@ -146,15 +146,53 @@ int serve_forever(int listenfd)
         {
             error_die("accept");
         }
-        accept_request(connfd,&request);
-        process_request(connfd,request);
-        close(connfd);
-    }
-    if(request)
-    {
-        free(request);
+		printf("%s\t",inet_ntoa(connaddr.sin_addr));
+		handle_request(connfd);
+		continue;
+        //accept_request(connfd,&request);
+        //process_request(connfd,request);
+        //close(connfd);
     }
     return 0;
+}
+
+int serve_forever_epoll(int listenfd)
+{
+	signal(SIGPIPE,SIG_IGN);//ignore the SIGPIPE signal
+	http_epoll_init(&http_epoll,1000);
+	http_epoll_add_listen_socket(&http_epoll,listenfd);
+    while(1)
+    {
+		http_epoll_wait(&http_epoll,1000);
+		continue;
+    }
+    return 0;
+}
+
+int handle_request(int connfd)
+{
+	pthread_t tid;
+	int res;
+	res=pthread_create(&tid,NULL,thread_handle_request,&connfd);
+	if(res!=0)
+	{
+		perror("pthread_create()");
+		return -1;
+	}
+	pthread_detach(tid);
+	return 0;
+}
+
+void *thread_handle_request(void *fd)
+{
+	int connfd=*(int*)fd;
+	char *request=NULL;
+	if(accept_request(connfd,&request))
+	{
+		process_request(connfd,request);
+	}
+	close(connfd);
+	pthread_exit(NULL);
 }
 
 int readc(int fd,void* buf,size_t count);
@@ -205,6 +243,71 @@ int accept_request(int connfd,char **request)
         free(*request);
         return 0;
     }
+}
+
+int parse_request(request_t *request)
+{
+	char ns,c;
+	char *s=NULL;
+	char buf[MAX_PATH_L];
+	int i;
+    if(!request->str)
+        return -1;
+    if((ns=sscanf(request->str,"%s %s %s",request->method,buf,request->version))!=3)
+    {
+		fprintf(stderr,"invalid request\n");
+		return -1;
+    }
+	urldecode(buf,request->url);
+	fprintf(stdout,"%s %s %s",request->method,request->url,request->version);
+    //process for different methods
+    if(!strcasecmp(request->method,"GET"))
+    {
+        //GET method
+        if((s=strchr(request->url,'?')))
+        {
+            //is a cgi program
+            request->cgi=1;
+            //sprintf(path,"%s",cgi_path);
+            //strncat(path,url,s-url);
+            sscanf(request->url,"%[^?]",buf);//file path
+            sprintf(request->path,"%s%s",root_dir,buf);//prefix of its relative path
+            sscanf(request->url,"%*[^?]?%s",request->arg);//query string parameters
+        }
+        else
+        {
+            //sscanf(url,"%s",buf);
+            strcpy(buf,request->url);
+            sprintf(request->path,"%s%s",root_dir,buf);
+            for(i=0; i<MAX_CGI_DIR_N; i++)
+            {
+                if((s=strstr(request->url,cgi_dir[i])))
+                {
+                    if(s[-1]=='/'&&s[strlen(cgi_dir[i])]=='/')
+                    {
+                        //a cgi program,no arguments passed
+                        request->cgi=1;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    else if(!strcasecmp(request->method,"POST"))
+    {
+        //POST method
+        request->cgi=1;
+        //sscanf(url,"%s",buf);
+        strcpy(request->url,buf);
+		printf("url: %s\n",buf);
+        sprintf(request->path,"%s%s",root_dir,buf);
+    }
+	if(stat(request->path,&request->st)==-1)
+	{//check file existance
+		request->notfound=1;
+		return -1;
+	}
+	return 0;
 }
 
 int process_request(int connfd,const char *request)
@@ -325,7 +428,7 @@ int process_request(int connfd,const char *request)
     return 0;
 }
 
-void send_headers(int connfd,const char *mimetype,size_t size)
+int send_headers(int connfd,const char *mimetype,size_t size)
 {
     char buf[MAXLINE];
     strcpy(buf,"HTTP/1.0 200 OK\r\n");
@@ -333,13 +436,13 @@ void send_headers(int connfd,const char *mimetype,size_t size)
     strcat(buf,"\r\nContent-Type: ");
     strcat(buf,mimetype);
     strcat(buf,"\r\n");
-    send(connfd,buf,strlen(buf),0);
+    return send(connfd,buf,strlen(buf),0);
 }
 
-void end_headers(int connfd)
+int end_headers(int connfd)
 {
     //send(connfd,(void*)"\r\n",sizeof("\r\n"),0);//error to use sizeof!!
-    send(connfd,(void*)"\r\n",strlen("\r\n"),0);
+    return send(connfd,(void*)"\r\n",strlen("\r\n"),0);
     //a blank line seperate headers from the content
 }
 
@@ -749,13 +852,14 @@ void error_die(const char *s)
     exit(1);
 }
 
-void send_error(int connfd,int code,const char *message)
+int send_error(int connfd,int code,const char *message)
 {
     char buf[MAXLINE];
     sprintf(buf,"HTTP/1.0 %d %s\r\n",code,message);
     strcat(buf,"Content-Type: text/html\r\n");
     send(connfd,buf,strlen(buf),0);
     end_headers(connfd);
+	return 0;
 }
 
 void unimplemented(int connfd)
@@ -798,15 +902,61 @@ void bad_request(int connfd)
     send(connfd,buf,strlen(buf),0);
 }
 
+/*int main(int argc,char **argv)
+{
+    int listenfd;//file descriptor for listening socket
+    int port=DEFAULT_PORT;//listening port
+    getcwd(root_dir,sizeof(root_dir));
+
+	int opt;
+	while((opt=getopt(argc,argv,"d:p:"))!=-1)
+	{
+		switch(opt)
+		{
+			case 'd':
+				printf("directory: %s\n",optarg);
+				strcpy(root_dir,optarg);
+				break;
+			case 'p':
+				port=atoi(optarg);
+				printf("port: %d\n",port);
+				break;
+		}
+	}
+
+    listenfd=startserver(&listenfd,&port);
+    printf("NHW httpd is running on port %d\n",port);
+    serve_forever(listenfd);
+
+    close(listenfd);
+    return 0;
+}*/
+
 int main(int argc,char **argv)
 {
     int listenfd;//file descriptor for listening socket
     int port=DEFAULT_PORT;//listening port
     getcwd(root_dir,sizeof(root_dir));
 
+	int opt;
+	while((opt=getopt(argc,argv,"d:p:"))!=-1)
+	{
+		switch(opt)
+		{
+			case 'd':
+				printf("directory: %s\n",optarg);
+				strcpy(root_dir,optarg);
+				break;
+			case 'p':
+				port=atoi(optarg);
+				printf("port: %d\n",port);
+				break;
+		}
+	}
+
     listenfd=startserver(&listenfd,&port);
     printf("NHW httpd is running on port %d\n",port);
-    serve_forever(listenfd);
+    serve_forever_epoll(listenfd);
 
     close(listenfd);
     return 0;
