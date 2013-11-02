@@ -308,6 +308,10 @@ int http_connection_handle(http_epoll_t *this,struct epoll_event *eevent)
 					{
 						fprintf(stderr,"open %s error\n",c->request.path);
 					}
+					else
+					{
+						setnonblock(c->fd);
+					}
 					c->sendheaders=1;
 					c->read=0;   //we are writing to socket from now on
 				}
@@ -397,8 +401,8 @@ int http_send(connection_t *c)
 {
 	int n,ns=0,nr=0,l;
 	//char buf[MAXLINE];
-	char buf[6291456];
-	//char buf[65536];
+	//char buf[6291456];
+	char buf[1];
 	if(c->sendheaders)
 	{
 		l=strlen(c->headers)-c->sent;
@@ -446,7 +450,7 @@ int http_send(connection_t *c)
 			return 0;
 		}
 		while(1)
-		{
+		{//CRITICAL,using while(1) instead of while(l)
 			if(lseek(c->fd,c->sent,SEEK_SET)==-1)
 			{//continue after last time send
 				perror("lseek");
@@ -492,6 +496,12 @@ int http_send(connection_t *c)
 			{
 				//error in read data from fd wait for next epoll_wait cycle to
 				//continue sending data to the socket. TO DO.
+				if(errno==EAGAIN)
+				{//file blocks
+					fprintf(stderr,"file %d would block\n",c->fd);
+					perror("read");
+					break;
+				}
 				fprintf(stderr,"reading data from fd error\n");
 			}
 		}
@@ -504,3 +514,19 @@ int http_send(connection_t *c)
 	return ns;
 }
 
+int setnonblock(int fd)
+{
+	int flags=fcntl(fd,F_GETFL,0);
+	if(flags==-1)
+	{
+		perror("fcntl:F_GETFL");
+		return -1;
+	}
+	flags |= O_NONBLOCK;
+	if(fcntl(fd,F_SETFL,flags)==-1)
+	{
+		perror("fcntl: O_NONBLOCK");
+		return -1;
+	}
+	return 0;
+}

@@ -77,4 +77,6 @@ int http_connection_headers(connection_t *c);
 int http_send(connection_t *c);
 int http_recv(connection_t *c);
 
+//utils
+int setnonblock(int fd);
 #endif
