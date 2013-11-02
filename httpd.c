@@ -259,6 +259,7 @@ int parse_request(request_t *request)
 		return -1;
     }
 	urldecode(buf,request->url);
+	fprintf(stdout,"%s %s %s",request->method,request->url,request->version);
     //process for different methods
     if(!strcasecmp(request->method,"GET"))
     {

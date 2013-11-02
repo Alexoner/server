@@ -16,6 +16,7 @@
 #define ROOT_DIR				""
 #define MAX_NAME_VALUE			255
 #define MAXLINE					65535
+#define MAX_REQUEST_L           1024
 #define MAX_METHOD_L			128
 #define MAX_URL_L				512
 #define MAX_PATH_L				512

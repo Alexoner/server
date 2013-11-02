@@ -75,5 +75,6 @@ int http_epoll_add_listen_socket(http_epoll_t *this,int fd);
 int http_connection_handle(http_epoll_t *c,struct epoll_event *eevent);
 int http_connection_headers(connection_t *c);
 int http_send(connection_t *c);
+int http_recv(connection_t *c);
 
 #endif
