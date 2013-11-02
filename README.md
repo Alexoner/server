@@ -9,12 +9,13 @@ serve dynamic files
 error process,error code
 directory listing
 mime type
-multiplexing socket file descriptor
+multiplexing socket for event-driven(signal-drive) asynchronous server(epoll)
 threaded processing per request
 CGI processing
 urldecode
 
 TO-DO:
 streaming
-multiplexing socket for event-driven(signal-drive) asynchronous server(epoll)
+email proxy
+proxy agent(google app engine)
 solve "bind:address already in use"
