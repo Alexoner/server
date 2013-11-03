@@ -21,7 +21,6 @@
 #include <string.h>
 
 #include "httpd.h"
-#include "http_epoll.h"
 
 typedef struct connection_s
 {
@@ -60,6 +59,7 @@ typedef struct http_event_s
     //to EPOLL signal event are expected by this function
 } http_event_t;
 
+extern int buf_size;
 
 int http_epoll_init(http_epoll_t *this,int size);
 int http_epoll_close(http_epoll_t *this);

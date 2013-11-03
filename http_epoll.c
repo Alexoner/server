@@ -15,6 +15,7 @@
 
 
 http_epoll_t http_epoll;
+int buf_size;
 
 int http_epoll_init(http_epoll_t *this,int size)
 {
@@ -121,10 +122,7 @@ int http_epoll_wait(http_epoll_t *this,int msec)
         return errno;
     }
 
-	if(nfds==0)
-	{
-		fprintf(stderr,"monitering: %d,none available\n",this->used);
-	}
+	fprintf(stderr,"monitering: %d,%d available\n",this->used,nfds);
 
     for(i=0; i<nfds; i++)
     {
@@ -402,7 +400,7 @@ int http_send(connection_t *c)
 	int n,ns=0,nr=0,l;
 	//char buf[MAXLINE];
 	//char buf[6291456];
-	char buf[1];
+	char buf[buf_size];
 	if(c->sendheaders)
 	{
 		l=strlen(c->headers)-c->sent;

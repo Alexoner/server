@@ -939,7 +939,9 @@ int main(int argc,char **argv)
     getcwd(root_dir,sizeof(root_dir));
 
 	int opt;
-	while((opt=getopt(argc,argv,"d:p:"))!=-1)
+
+	buf_size=512;
+	while((opt=getopt(argc,argv,"d:p:b:"))!=-1)
 	{
 		switch(opt)
 		{
@@ -950,6 +952,9 @@ int main(int argc,char **argv)
 			case 'p':
 				port=atoi(optarg);
 				printf("port: %d\n",port);
+				break;
+			case 'b':
+				buf_size=atoi(optarg);
 				break;
 		}
 	}
